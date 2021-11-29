@@ -1,32 +1,30 @@
-import { ISelectItem } from "./select-item.interface";
+import {ISelectItem} from "./select-item.interface";
 import {QueryKind} from "./query-type.enum";
-import {isArray, isString, trim, endsWith, find, includes} from "lodash";
-const isNumber = require("is-number");
 
 export default class Sql {
 
     private _queryKind: QueryKind;
     private _selects: Array<ISelectItem>;
-    private _tables;
+    private _tables: Array<string>;
     private _wheres: Array<string>;
-    private _whereConcat;
-    private _whereConcatDefault;
-    private _sets;
+    private _whereConcat: string;
+    private _whereConcatDefault: string;
+    private _sets: Array<any>;
     private _limit: number;
     private _offset: number;
-    private _orderBys;
-    private _joins;
+    private _orderBys: Array<any>;
+    private _joins: Array<any>;
     private _groupBys: Array<string>;
-    private _whereGroupCount;
-    private _openWhereGroupCount;
-    private _havings;
+    private _whereGroupCount: number;
+    private _openWhereGroupCount: number;
+    private _havings: Array<any>;
 
     constructor() {
         this.reset();
     }
 
     private reset() {
-        this._queryKind = undefined; // todo: rename to _queryKind
+        this._queryKind = undefined;
         this._selects = [];
         this._tables = [];
         this._wheres = [];
@@ -45,23 +43,23 @@ export default class Sql {
     }
 
     select();
-    select(field: string | Array<string>);
+    select(field: string);
     select(func: string, field: any, alias: string);
-    select(field?: string | Array<string>, alias?: string, func?: string) {
+    select(field?: any, alias?: string, func?: string) {
         this._queryKind = QueryKind.SELECT;
         switch (arguments.length) {
             case 0:
                 this._selects.push({ "field": "*" });
                 break;
             case 1:
-                if (!isArray(field)) field = String(field).split(",");
-                (field as Array<string>).map(f => trim(f)).filter(Boolean).forEach(f => {
+                if (!Array.isArray(field)) field = String(field).split(",");
+                (field as Array<string>).map(f => f.trim()).filter(Boolean).forEach(f => {
                     var [field, alias] = f.split(/\s*as\s*/i);
                     this._selects.push({ field, alias });
                 });
                 break;
             case 2:
-                if (isString(field)) {
+                if (this._isString(field)) {
                     this._selects.push({ field, alias });
                 }
                 break;
@@ -69,54 +67,12 @@ export default class Sql {
                 var args: Array<any> = Array.prototype.slice.call(arguments);
                 func = args.shift(); // First parameter
                 alias = args.pop(); // Last parameter
-                args = args.map(f => isArray(f) ? f.join(", ") : f); // Do flatten array.
+                args = args.map(f => Array.isArray(f) ? f.join(", ") : f); // Do flatten array.
                 this._selects.push({ func, alias, "field": args.join(", ") });
         }
         return this;
     }
-
-    private _where = function (sql: string) {
-        var concat = "";
-        if (this._wheres.length > 0) {
-            concat = this._whereConcat + " ";
-        }
-        while (this._openWhereGroupCount > 0) {
-            concat += "(";
-            this._openWhereGroupCount--;
-        }
-        // console.log("concat _w ", JSON.stringify(concat));
-        // console.log("sql _w ", JSON.stringify(sql));
-        this._whereConcat = this._whereConcatDefault;
-        this._wheres.push(concat + sql);
-        // console.log("this._wheres ", this._wheres);
-    }
-
-    private _wrap(value: any) {
-        if (!isNumber(value)) {
-            value = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
-                .replace(/'/g, "\\'")
-                .replace(/\\"/g, '"') + '\'';
-        }
-        return value;
-    }
-
-    private _quote(value: string, wrapInQuotes: boolean) {
-        if (isNumber(value)) {
-            return value;
-        }
-        value = value
-            .replace("\\", "\\\\")
-            .replace("\0", "\\0")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("'", "\\'")
-            .replace("\"", "\\\"")
-            .replace("\x1a", "\\Z");
-        if (wrapInQuotes) {
-            value = "'" + value + "'";
-        }
-        return value;
-    }
+    
 
     between(field, value, otherValue) {
         if (otherValue === undefined) {
@@ -130,60 +86,86 @@ export default class Sql {
         return this;
     }
 
-    table(table: string | Array<string>) {
-        var tables: Array<string>;
-        if (!isArray(table)) {
-            tables = [table];
-        } else {
-            tables = table;
+    table(table: Array<string>);
+    table(table: string);
+    table(table: any) {
+        if (!Array.isArray(table)) {
+            table = [table];
         }
-        tables.forEach(t => this._tables.push(t));
+        table.forEach(t => this._tables.push(t));
         return this;
     }
 
-    from(table: string | Array<string>) {
+    from(table: Array<string>);
+    from(table: string);
+    from(table: any) {
         return this.table(table);
     }
 
-    into(table: string | Array<string>) {
+    into(table: string);
+    into(table: Array<string>);
+    into(table: any) {
         return this.table(table);
     }
 
-    private static _operators = [">=", "<=", "!=", "<>", ">", "<", "!@", "@", "%$", "^%", "%", "like", "not like", "is null", "is not null"];
+    private static _operators = [">=", "<=", "!=", "<>", ">", "<", "!@", "@", "%$", "^%", "%", "like", "not like", "is", "is null", "is not null"];
 
-    private _conditionExpr(field: string, value: any) {
-        var operator = find(Sql._operators, o => endsWith(field, o));
-        if (operator) {
-            field = field.slice(0, -operator.length).trim();
-        } else {
-            operator = "=";
+
+    private _isString(str){
+        if (str != null && typeof str.valueOf() === "string") {
+          return true
         }
+        return false
+      }
+
+    private _conditionExpr(field: string, value?: any, operator?: string) {
         var wrapValue = true;
-        if (value === null) value = "@null";
-        if (isString(value)) {
-            if (value.substr(0, 1) == "@") {
-                wrapValue = false;
-                value = value.substr(1);
+        if (!operator) {
+            operator = Sql._operators.find(o => field.endsWith(o));
+            if (operator) {
+                field = field.slice(0, -operator.length).trim();
             }
         }
-        var result = [field, operator];
-        if (value !== undefined) {
-            if (wrapValue) value = this._wrap(value);
-            result.push(value);
+        switch (operator) {
+            case "is null":
+                operator = "is";
+                value = "@null";
+                break;
+            case "is not null":
+                operator = "is not";
+                value = "@null";
+                break;
+            default:
+                if (!operator) {
+                    operator = "=";
+                }
         }
-        return result;
+        if (value === null) {
+            value = "@null";
+        }
+        if (this._isString(value) && value.substr(0, 1) === "@") {
+            wrapValue = false;
+            value = value.substr(1);
+        }
+        if (wrapValue && value !== undefined) {
+            value = this._wrap(value);
+        }
+        return { field, operator, value };
     }
 
-    where(field, value) {
+    where(field, operator?, value?) {
         if (typeof field === "object") {
             for (var i in field) {
                 this.where(i, field[i]);
             }
             return this;
         }
-        var expr = this._conditionExpr(field, value);
-        var operator = expr[1];
-        switch (operator) {
+        if (value === undefined) {
+            value = operator;
+            operator = undefined;
+        }
+        var expr = this._conditionExpr(field, value, operator);
+        switch (expr.operator) {
             case "@": return this.whereIn(field.slice(0, -1), value);
             case "!@": return this.whereNotIn(field.slice(0, -2), value);
             case "!%": return this.notLike(field.slice(0, -2), value, "both");
@@ -191,9 +173,7 @@ export default class Sql {
             case "^%": return this.like(field.slice(0, -2), value, "right");
             case "%$": return this.like(field.slice(0, -2), value, "left");
         }
-        var sql = expr.join(" ");
-        // console.log("sql.w ", JSON.stringify(sql));
-        this._where(sql);
+        this._where(`${expr.field} ${expr.operator} ${expr.value}`);
         return this;
     }
 
@@ -202,7 +182,7 @@ export default class Sql {
     }
 
     whereIn(field, values: Array<string>, op = "in") {
-        if (!isArray(values)) values = [String(values)];
+        if (!Array.isArray(values)) values = [String(values)];
         values = values.map(this._wrap);
         var value = "(" + values.join(",") + ")";
         var where = field + " " + op + " " + value;
@@ -218,9 +198,17 @@ export default class Sql {
         return this;
     }
 
+    top(n: number) {
+        return this.limit(n);
+    }
+
     offset(offset: number) {
         this._offset = offset;
         return this;
+    }
+
+    skip(n: number) {
+        return this.offset(n);
     }
 
     notLike(field, match, side) {
@@ -228,12 +216,12 @@ export default class Sql {
     }
 
     like(field: string, match = "", side = "both", op = "like") {
-        field = trim(field);
+        field = field.trim();
         switch (side) {
             case "left": match = "%" + match; break;
             case "right": match += "%"; break;
             case "both": {
-                if (isString(match) && match.length === 0) {
+                if (this._isString(match) && match.length === 0) {
                     match = "%";
                 } else {
                     match = "%" + match + "%";
@@ -242,20 +230,16 @@ export default class Sql {
             default:
                 throw new Error(`Unknown side ${side}`);
         }
-        // console.log('field', JSON.stringify(field));
-        // console.log('op', JSON.stringify(op));
-        // console.log('match', JSON.stringify(match));
-        // console.log(JSON.stringify(`${field} ${op} ${this._wrap(match)}`));
         this._where(`${field} ${op} ${this._wrap(match)}`);
         return this;
     }
 
     groupBy(fields: Array<string>) {
-        if (!isArray(fields)) {
+        if (!Array.isArray(fields)) {
             fields = String(fields).split(",");
         }
         fields
-            .map(f => trim(f))
+            .map(f => f.trim())
             .filter(f => f.length > 0)
             .forEach(f => {
                 this._groupBys.push(f);
@@ -301,20 +285,19 @@ export default class Sql {
     private static _joinTypes = ["inner", "outer", "left", "right", "left outer", "right outer"];
 
     join(table: string, on: string, join: string) {
-        if (!includes(Sql._joinTypes, join)) join = "";
-        var expr = trim(`${join} join ${table} on ${on}`);
+        if (!Sql._joinTypes.includes(join)) join = "";
+        var expr = `${join} join ${table} on ${on}`.trim();
         this._joins.push(expr);
         return this;
     }
 
-    leftJoin(table, on) {
+    leftJoin(table: string, on: string) {
         return this.join(table, on, "left");
     }
 
     having(field, value) {
         var expr = this._conditionExpr(field, value);
-        var sql = expr.join(" ");
-        this._havings.push(sql);
+        this._havings.push(`${expr.field} ${expr.operator} ${expr.value}`);
         return this;
     }
 
@@ -356,7 +339,7 @@ export default class Sql {
         if (this._groupBys.length > 0) sql += " " + "group by " + this._groupBys.join(", ");
         if (this._havings.length > 0) sql += " " + "having " + this._havings.join(" ");
         if (this._orderBys.length > 0) sql += " " + "order by " + this._orderBys.join(", ");
-        if (isNumber(this._limit)) {
+        if (!isNaN(this._limit)) {
             sql += " ";
             sql = this.getLimit(sql, this._limit, this._offset);
         }
@@ -382,6 +365,14 @@ export default class Sql {
         return result;
     }
 
+    update(table?: string) {
+        this._queryKind = QueryKind.UPDATE;
+        if (table) {
+            this._tables.push(table);
+        }
+        return this;
+    }
+
     getUpdate() {
         this._endQuery();
         var table = this._tables[0];
@@ -398,14 +389,6 @@ export default class Sql {
         }
         this.reset();
         return result;
-    }
-
-    update(table?: string) {
-        this._queryKind = QueryKind.UPDATE;
-        if (table) {
-            this._tables.push(table);
-        }
-        return this;
     }
 
     insert() {
@@ -433,7 +416,6 @@ export default class Sql {
     }
 
     getInsert() {
-        // this._endQuery();
         var table = this._tables[0];
         var result = "insert into " + table;
         var names = this._sets.map(item => item.name);
@@ -447,14 +429,47 @@ export default class Sql {
         return result;
     }
 
-    // subQuery() {
-    // 	var sql = this.get();
-    // 	return "(" + sql + ")";
-    // }
-
-
     getLimit(sql, limit, offset): string {
-        throw "getLimit() not supported.";
+        throw new Error("getLimit() not supported.");
     }
 
+    private _where(sql: string) {
+        var concat = "";
+        if (this._wheres.length > 0) {
+            concat = this._whereConcat + " ";
+        }
+        while (this._openWhereGroupCount > 0) {
+            concat += "(";
+            this._openWhereGroupCount--;
+        }
+        this._whereConcat = this._whereConcatDefault;
+        this._wheres.push(concat + sql);
+    }
+
+    private _wrap(value: any) {
+        if (isNaN(value)) {
+            value = '\'' + JSON.stringify(value).replace(/^"|"$/g, '')
+                .replace(/'/g, "\\'")
+                .replace(/\\"/g, '"') + '\'';
+        }
+        return value;
+    }
+
+    private _quote(value: string, wrapInQuotes: boolean) {
+        if (isNaN(parseInt(value))) {
+            return value;
+        }
+        value = value
+            .replace("\\", "\\\\")
+            .replace("\0", "\\0")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("'", "\\'")
+            .replace("\"", "\\\"")
+            .replace("\x1a", "\\Z");
+        if (wrapInQuotes) {
+            value = "'" + value + "'";
+        }
+        return value;
+    }
 }

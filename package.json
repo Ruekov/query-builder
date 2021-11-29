@@ -7,8 +7,6 @@
     "test": "test"
   },
   "dependencies": {
-    "is-number": "^3.0.0",
-    "lodash": "^4.16.0",
     "toSrc": "^0.1.4"
   },
   "devDependencies": {
